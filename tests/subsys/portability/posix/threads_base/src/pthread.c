@@ -559,6 +559,106 @@ ZTEST(pthread, test_pthread_setschedprio)
 	zassert_ok(pthread_join(th, NULL));
 }
 
+ZTEST(pthread, test_pthread_setschedprio_main)
+{
+	test_pthread_setschedprio_fn(NULL);
+}
+
+static void *test_pthread_getschedparam_fn(void *arg)
+{
+	int act_policy = 0, res;
+	struct sched_param param;
+	pthread_t self = pthread_self();
+
+	zassert_ok(pthread_getschedparam(self, &act_policy, &param));
+	res = act_policy == SCHED_FIFO || act_policy == SCHED_RR;
+	zassert_true(res);
+
+	return NULL;
+}
+
+ZTEST(pthread, test_pthread_getschedparam)
+{
+	pthread_t th;
+
+	zassert_ok(pthread_create(&th, NULL, test_pthread_getschedparam_fn, NULL));
+	zassert_ok(pthread_join(th, NULL));
+}
+
+ZTEST(pthread, test_pthread_getschedparam_main)
+{
+	test_pthread_getschedparam_fn(NULL);
+}
+
+static char pthread_name_glob_name[80];
+
+static void *test_pthread_name_fn(void *arg)
+{
+	char name[80];
+	int res;
+	pthread_t self = pthread_self();
+
+	pthread_mutex_lock(&lock);
+	pthread_cond_signal(&cvar0);
+	pthread_cond_wait(&cvar1, &lock);
+
+	zassert_ok(pthread_getname_np(self, name, sizeof(name)));
+	res = strncmp("CreateThreadName", name, sizeof(name));
+	zassert_equal(0, res, "Creation Thread-Name (pthread)");
+
+	zassert_ok(pthread_setname_np(self, "ChangdThreadName"));
+	zassert_ok(pthread_getname_np(self, name, sizeof(name)));
+	res = strncmp("ChangdThreadName", name, sizeof(name));
+	zassert_equal(0, res, "Changed Thread-Name (pthread)");
+	strncpy(pthread_name_glob_name, name, sizeof(name));
+
+	pthread_mutex_unlock(&lock);
+
+	return NULL;
+}
+
+ZTEST(pthread, test_pthread_name)
+{
+	char name[80];
+	int res;
+	pthread_t th;
+
+	pthread_mutex_lock(&lock);
+	zassert_ok(pthread_create(&th, NULL, test_pthread_name_fn, NULL));
+	pthread_cond_wait(&cvar0, &lock);
+
+	zassert_ok(pthread_setname_np(th, "CreateThreadName"));
+	zassert_ok(pthread_getname_np(th, name, sizeof(name)));
+	res = strncmp("CreateThreadName", name, sizeof(name));
+	zassert_equal(0, res, "Create Thread-Name (main)");
+	pthread_cond_signal(&cvar1);
+	pthread_mutex_unlock(&lock);
+
+	zassert_ok(pthread_join(th, NULL));
+
+	if (pthread_getname_np(th, name, sizeof(name)) == 0) {
+		res = strncmp("ChangdThreadName", name, sizeof(name));
+		zassert_equal(0, res, "Changed Thread-Name (main)");
+	} /* else thread th could be already dead, OK */
+
+	res = strncmp("ChangdThreadName", pthread_name_glob_name, sizeof(pthread_name_glob_name));
+	zassert_equal(0, res, "Changed Thread-Name (main, global)");
+}
+
+ZTEST(pthread, test_pthread_name_main)
+{
+	char name[80];
+	int res;
+	pthread_t self = pthread_self();
+
+	zassert_not_equal(0, self);
+
+	zassert_ok(pthread_setname_np(self, "MainThreadName"));
+	zassert_ok(pthread_getname_np(self, name, sizeof(name)));
+	res = strncmp("MainThreadName", name, sizeof(name));
+	zassert_equal(0, res, "Main Thread-Name");
+}
+
 static void before(void *arg)
 {
 	ARG_UNUSED(arg);
